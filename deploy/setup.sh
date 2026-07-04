@@ -36,12 +36,29 @@ sudo npm install -g pm2
 
 # --- Configure PostgreSQL ---
 echo "🗄️  Configuring PostgreSQL..."
+
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+
 sudo -u postgres psql <<EOF
-CREATE USER jerney_user WITH PASSWORD 'jerney_pass_2026';
-CREATE DATABASE jerney_db OWNER jerney_user;
+DO \$\$
+BEGIN
+    IF NOT EXISTS (
+        SELECT FROM pg_catalog.pg_roles
+        WHERE rolname='jerney_user'
+    ) THEN
+        CREATE ROLE jerney_user LOGIN PASSWORD 'jerney_pass_2026';
+    END IF;
+END
+\$\$;
+
+SELECT 'CREATE DATABASE jerney_db OWNER jerney_user'
+WHERE NOT EXISTS (
+    SELECT FROM pg_database
+    WHERE datname='jerney_db'
+)\gexec
+
 GRANT ALL PRIVILEGES ON DATABASE jerney_db TO jerney_user;
-\c jerney_db
-GRANT ALL ON SCHEMA public TO jerney_user;
 EOF
 
 echo "✅ PostgreSQL configured"
@@ -52,19 +69,36 @@ sudo mkdir -p /var/www/jerney
 sudo chown -R $USER:$USER /var/www/jerney
 
 # Copy project files (assumes you've transferred them to ~/Jerney)
-cp -r ~/Jerney/* /var/www/jerney/
+sudo apt install -y rsync
+
+rsync -av --delete --exclude='.git' ~/Jerney/ /var/www/jerney/
+
+
 
 # --- Install backend dependencies ---
 echo "📦 Installing backend dependencies..."
 cd /var/www/jerney/backend
-npm install --production
+if [ -f package-lock.json ]; then
+    npm ci --omit=dev
+else
+    npm install --omit=dev
+fi
 
 # --- Build frontend ---
 echo "🔨 Building frontend..."
 cd /var/www/jerney/frontend
-npm install
-npm run build
+if [ -f package-lock.json ]; then
+    echo "Installing using package-lock.json..."
+    npm ci || {
+        echo "package-lock.json is out of sync. Running npm install..."
+        npm install
+    }
+else
+    echo "No package-lock.json found. Running npm install..."
+    npm install
+fi
 
+npm run build
 # --- Configure Nginx ---
 echo "🌐 Configuring Nginx..."
 sudo cp /var/www/jerney/deploy/jerney-nginx.conf /etc/nginx/sites-available/jerney
@@ -77,9 +111,13 @@ sudo systemctl enable nginx
 # --- Start backend with PM2 ---
 echo "🚀 Starting backend with PM2..."
 cd /var/www/jerney/backend
-pm2 start src/index.js --name jerney-backend
+pm2 delete jerney-backend 2>/dev/null || true
+
+pm2 start src/index.js \
+    --name jerney-backend
+
+sudo env PATH=$PATH pm2 startup systemd -u $USER --hp /home/$USER
 pm2 save
-pm2 startup systemd -u $USER --hp /home/$USER | tail -1 | sudo bash
 
 echo ""
 echo "==========================================="
