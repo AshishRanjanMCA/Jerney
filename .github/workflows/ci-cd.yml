@@ -208,7 +208,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ${{ matrix.component }}/Dockerfile
-          failure-threshold: warning
+          failure-threshold: error
 
   # ==============================================================
   # STAGE 7: Update K8s Manifest with New Image Tag
@@ -237,12 +237,11 @@ jobs:
 
           # Update backend image
           sed -i "s|image: .*jerney-backend.*|image: ${BACKEND_IMAGE}:${IMAGE_TAG}|g" k8s/jerney.yaml
-          sed -i "s|image: BACKEND_IMAGE_PLACEHOLDER|image: ${BACKEND_IMAGE}:${IMAGE_TAG}|g" k8s/jerney.yaml
+          
 
           # Update frontend image
           sed -i "s|image: .*jerney-frontend.*|image: ${FRONTEND_IMAGE}:${IMAGE_TAG}|g" k8s/jerney.yaml
-          sed -i "s|image: FRONTEND_IMAGE_PLACEHOLDER|image: ${FRONTEND_IMAGE}:${IMAGE_TAG}|g" k8s/jerney.yaml
-
+          
           echo "✅ Updated images to tag: ${IMAGE_TAG}"
           grep "image:" k8s/jerney.yaml
 
